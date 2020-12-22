@@ -36,7 +36,7 @@ library(RSQLite)
 ```
 
 The NFIWADS sample data is available as supplementary materials of NFIWADS-publication at ZENODO. We download the .zip file to a temporary location and extract the sqlite database file 'NFIWADS_input.sqlite', that contains the input along with a sample of climatic data, to save it in the working directory:
-```{r, eval = F}
+```{r}
 tdir <- tempdir()
 tfile <- tempfile(tmpdir = tdir, fileext = ".zip")
 download.file("https://zenodo.org/record/1491520/files/NFIWADS_supplementary_material.zip",tfile)
