@@ -1,8 +1,10 @@
 ---
-title: "Template for how to perform multirun simulations on many sites"
+title: "Perform multi-site water balance simulations using LWFBrook90R"
 author: "Paul Schmidt-Walter"
 date: "`r Sys.Date()`"
-output: pdf_document
+output: 
+  pdf_document:
+    toc: true
 vignette: >
   %\VignetteIndexEntry{Vignette Title}
   %\VignetteEngine{knitr::rmarkdown}
@@ -17,37 +19,51 @@ knitr::opts_chunk$set(
 ```
 
 # Introduction
-With the new LWFBrook90R version 0.4.0, multisite-simulations are becoming more flexible, through new possibilities for retrieving climatic data input from a function, and to use the `output_fun` argument of `run_LWFB90()` with reference to identifiers for soil, climate and parameters, when called from `run_multisite_LWFB90()`. To demonstrate the potential of the new functionality, multi run simulations will be performed that reproduce the data of the NFIWADS database, containing monthly and yearly aggregates of water fluxes and soil moisture state variables for the National Forest Inentory of Germany (NFI).
+With the new LWFBrook90R version 0.4.0, multisite-simulations are becoming more
+flexible, through new possibilities for retrieving climatic data input from a
+function, and to use the `output_fun` argument of `run_LWFB90()` with reference
+to identifiers for soil, climate and parameters, when called from
+`run_multisite_LWFB90()`. To demonstrate the potential of the new functionality,
+multi run simulations will be performed that reproduce the data of the NFIWADS
+database, containing monthly and yearly aggregates of water fluxes and soil
+moisture state variables for the National Forest Inentory of Germany (NFI).
 
 ## Prerequisites and data
 
-To reproduce the shown examples, please install LWFBrook90R version 0.4.0 or higher. You can install the package directly from github.com:
+To reproduce the shown examples, please install LWFBrook90R version 0.4.0 or
+higher. You can install the package directly from github.com using the package
+'remotes':
 ```{r, eval = F}
-if(!require("remotes")) install.packages("remotes")
-remotes::install_github(repo="pschmidtwalter/LWFBrook90R", build_vignettes=TRUE)
+remotes::install_github(repo="pschmidtwalter/LWFBrook90R",
+                        ref = "v0.4.0",
+                        build_vignettes=TRUE)
 ```
 
 Now load the required packages:
-```{r}
+```{r, results = 'hide'}
 library(LWFBrook90R)
 library(data.table)
 library(RSQLite)
 ```
 
-The NFIWADS sample data is available as supplementary materials of NFIWADS-publication at ZENODO. We download the .zip file to a temporary location and extract the sqlite database file 'NFIWADS_input.sqlite', that contains the input along with a sample of climatic data, to save it in the working directory:
-```{r}
+The NFIWADS sample data is available as supplementary materials of
+NFIWADS-publication at ZENODO. We download the .zip file to a temporary location
+and extract the sqlite database file 'NFIWADS_input.sqlite', that contains the
+input along with a sample of climatic data, to save it in the working directory:
+```{r, results = 'hide'}
 tdir <- tempdir()
 tfile <- tempfile(tmpdir = tdir, fileext = ".zip")
-download.file("https://zenodo.org/record/1491520/files/NFIWADS_supplementary_material.zip",tfile)
-unzip(tfile,  exdir=tdir, overwrite=TRUE)
+download.file("https://zenodo.org/record/1491520/files/NFIWADS_supplementary_material.zip", tfile)
+unzip(tfile,  exdir= tdir, overwrite=TRUE)
 file.copy(file.path(tdir, "NFIWADS_input.sqlite"), getwd())
-unlink(tdir)
 ```
 
-Before running the NFIWADS example, we will also run some small examples using the sample data that comes with LWFBrook90R. Therefore, we load the climatic and soil physical data, create standard `param_b90` and `options_b90` objects and set up a `soil` data.frame, using a pedotransfer function:
+Before running the NFIWADS example, we will also run some small examples using
+the sample data that comes with LWFBrook90R. Therefore, we load the climatic and
+soil physical data, create standard `param_b90` and `options_b90` objects and
+set up a `soil` data.frame, using a pedotransfer function:
 ```{r}
-data("slb1_soil")
-data("slb1_meteo")
+data("slb1_soil", "slb1_meteo")
 opts <- set_optionsLWFB90(startdate = as.Date("2002-06-01"), enddate = as.Date("2002-06-02"))
 parms <- set_paramLWFB90()
 soil <- cbind(slb1_soil, hydpar_wessolek_tab(texture = slb1_soil$texture))
@@ -55,7 +71,9 @@ soil <- cbind(slb1_soil, hydpar_wessolek_tab(texture = slb1_soil$texture))
 
 # Multi-site simulations: climatic data input from a function {#msite-clim}
 
-A basic multi-site simulation using the function `run_multisite_LWFB90()` runs through lists of `param_b90`, `climate`, and `soil`-objects, and evaluates the specified parameter sets for each of the soil/climate combinations: 
+A basic multi-site simulation using the function `run_multisite_LWFB90()` runs
+through lists of `param_b90`, `climate`, and `soil`-objects, and evaluates the
+specified parameter sets for each of the soil/climate combinations:
 ```{r}
 test <- run_multisite_LWFB90(options_b90 = opts,
                param_b90 = list(beech = parms,spruce = parms),
@@ -63,22 +81,41 @@ test <- run_multisite_LWFB90(options_b90 = opts,
                soil = list(soil1 = soil, soil2 = soil, soil3 = soil))
 str(test, max.level = 1)
 ```
-The results are returned as a list of the single run objects, as returned by `run_LWFB90()`. The list entries are named according to the names of the list entries holding the individual `param_b90`, `climate`, and `soil` input objects. The function can easily be set up to run the 10 samples from the NFIWADS input database for which climatic data is available. However, simulating all sites from NFIWADS database in this way is not possible, because such a large list of `climate` data.frames does not fit in the memory. Fortunately, it is possible to pass a function instead of a `data.frame` as `climate`-argument to `run_LWFB90()`. Such a function can be used to create the `climate`-data.frame from a file or database-connection within `run_LWFB90` or `run_multisite_LWFB90()`. For `run_LWFB90`, we can provide arguments to the function simply via the `...`-placeholder. For `run_multisite_LWFB90()`, however, we need to pass arguments to the function (possibly with individual values for individual site, e.g. a file name) via the `climate_args`-argument.
+The results are returned as a list of the single run objects, as returned by
+`run_LWFB90()`. The list entries are named according to the names of the list
+entries holding the individual `param_b90`, `climate`, and `soil` input objects.
+The function can easily be set up to run the 10 samples from the NFIWADS input
+database for which climatic data is available. However, simulating all sites
+from NFIWADS database in this way is not possible, because such a large list of
+`climate` data.frames does not fit in the memory. Fortunately, it is possible to
+pass a function instead of a `data.frame` as `climate`-argument to
+`run_LWFB90()`. Such a function can be used to create the `climate`-data.frame
+from a file or database-connection within `run_LWFB90` or
+`run_multisite_LWFB90()`. For `run_LWFB90`, we can provide arguments to the
+function simply via the `...`-placeholder. For `run_multisite_LWFB90()`,
+however, we need to pass arguments to the function (possibly with individual
+values for individual site, e.g. a file name) via the `climate_args`-argument.
 
-To demonstrate this mechanism, we set up the database connection to 'NFIWADS_input.sqlite', extract the site ids for which climatic data is available and display the tables in the database:
+To demonstrate this mechanism, we set up the database connection to
+'NFIWADS_input.sqlite', extract the site ids for which climatic data is
+available and display the tables in the database:
 
 ```{r}
 #set up connection
 dbinput <- dbConnect(SQLite(), "NFIWADS_input.sqlite")
 
+# list tables
+dbListTables(dbinput) #list tables
+
 #retrieve site_ids for which climatic data is available 
 ids_clim <- dbGetQuery(dbinput, "select distinct id from climate_daily_int100_sample")$id
-
-dbListTables(dbinput) #list tables
 ```
 
-The climatic data resides in the table 'climate_daily_int100_sample', all variables are stored as integers and need to be divided by 100 for converting them to the units required y LWFBrook90. 
-Accordingly, we define a function, that retrieves the climatic data for a specific NFI site from a table in the database, does the data processing and returns a suitable `climate` data.frame: 
+The climatic data resides in the table 'climate_daily_int100_sample'. All
+variables are stored as integers and need to be divided by 100 for converting
+them to the units required by `run_LWFB90()`. Accordingly, we define a function,
+that retrieves the climatic data for a specific NFI site from a table in the
+database, does the data processing and returns a suitable `climate` data.frame:
 
 ```{r}
 climfun <- function(con, tbl, site_id){
@@ -108,13 +145,20 @@ climfun <- function(con, tbl, site_id){
 }
 ```
 
-Lets test our function with the database connection set up earlier to see that it works:
+Lets test our function with the database connection set up earlier to see that
+it works:
 
 ```{r}
 head(climfun(con = dbinput, tbl = "climate_daily_int100_sample", site_id = ids_clim[1]))
 ```
 
-Before we run our multi-site simulation, we need to set up lists of arguments for our above defined function, one for each site, and store them together in a list. We define a list for each site, holding the required arguments. Although `site_id` is the only site-dependend parameter, we need to specify all non-default arguments for each site here. We loop across our earlier retrieved vector of ids and name the entries according to the site ids, so they will be propagated to the output of the simulations.  
+Before we run our multi-site simulation, we need to set up lists of arguments
+for our above defined function, one for each site, and store them together in a
+list. We define a list for each site, holding the required arguments. Although
+`site_id` is the only site-dependend parameter, we need to specify all
+non-default arguments for each site here. We loop across our earlier retrieved
+vector of ids and name the entries according to the site ids, so they will be
+propagated to the output of the simulations.
 
 ```{r}
 clim_args <- lapply(ids_clim, function(x) {
@@ -125,20 +169,25 @@ clim_args <- lapply(ids_clim, function(x) {
 names(clim_args) <- ids_clim
 ```
 
-For the simulation, we additionally have to set up the soil `data.frames`, and define the parameter sets that we want to run:
+For the simulation, we need to define the model control options, have to set up
+the list of soil `data.frames`, and create the two parameter sets that we want
+to run:
 ```{r}
-# retrieve soil data for ids_clim
-soils <- dbGetQuery(dbinput, paste0("select * from soils where id in (", 
-                                    paste(paste0("'",ids_clim,"'"), collapse = ", "),
-                                    "); "))
-setDT(soils) # convert to data.table 
-
 # create LWFB90 options
 opts <- set_optionsLWFB90(startdate = as.Date("2000-01-01"),
                           enddate = as.Date("2010-12-31"),
                           root_method = "soilvar",
                           budburst_method = "Menzel",
                           leaffall_method = "vonWilpert")
+
+# retrieve soil data as data.table for ids_clim from database 
+soils <- data.table(
+  dbGetQuery(dbinput, paste0("select * from soils where id in (", 
+                             paste(paste0("'",ids_clim,"'"), collapse = ", "),
+                             "); "))
+)
+# convert to data.table and split to list
+soils_list <- split(soils, by = "id") 
 
 # create NFIWADS parameter sets  
 param_beech <- set_paramLWFB90(winlaifrac = 0.1,maxlai = 6,sai = 1,height = 30,
@@ -154,50 +203,103 @@ param_spruce <- set_paramLWFB90(winlaifrac = 0.8,maxlai = 5.5,sai = 1,height = 3
                               budburst_species = "Picea abies (frueh)",infexp = 0.66)
 ```
 
-Now we can run the multi-site simulation across the ten sites, using the two above defined parameter sets. The list of `soil` data.frames is created by splitting the `soils` according to their site id: 
+Now we can run the multi-site simulation across the ten sites, using the two
+above defined parameter sets. The list of `soil` data.frames is created by
+splitting the `soils` according to their site id:
 ```{r}
 test2 <- run_multisite_LWFB90(options_b90 = opts,
                param_b90 = list(beech = param_beech,spruce = param_spruce),
                climate = climfun,
                climate_args = clim_args,
                output = -1,
-               soil = split(soils, by = "id"),
+               soil = soils_list,
                cores = 5)
 str(test2, max.level = 1)
 ```
+
 # Multi-Site simulations: redirect output to file or database
 
-The example above showed how to avoid loading climatic data into the workspace all at once, by evaluating a function on-the-fly to deliver and process the data. However, the output of `run_multisite_LWFB90()` can also become very large if many sites are simulated, and the returned data is selected to contain daily values. To reduce the output of the single run simulations, it is possible to provide functions for `run_LWFB90()` via its `output_fun`-argument, that perform directly on the output of simulation, and can be used to do some custom aggregations or write the results to a file, while suppressing the return of the regular selected output (as specified by `output`-argument) using `rtrn_output = F`. In `run_multisite_LWFB90()`, such output-functions and further arguments can be easily passed via the `...` placeholder to `run_LWFB90()`. However, `run_LWFB90()` until recently did not know anything about the calling `run_multisite_LWFB90()` and the names of the parameter/soil/climate data sets (as specified by the names of the input list entries) it was currently processing. This was a problem, if the output function was defined to write its results to a file, because no identifier for the climate/soil/parameters sets was available inside `run_LWFB90()`. Since version 0.4.0, the names of the current soil, climate, parameter objects are passed automatically from `run_multisite_LWFB90()` to `run_LWFB90()` as objects `soil_nm`, `clim_nm`, and `param_nm`. In this way, they are accessible to `output_fun`-functions within `run_LWFB90()`.
+The example above showed how to avoid loading climatic data into the workspace
+all at once, by evaluating a function on-the-fly to deliver and process the
+data. However, the output of `run_multisite_LWFB90()` can also become very large
+if many sites are simulated, and the returned data is selected to contain daily
+values. To reduce the output of the single run simulations, it is possible to
+provide functions for `run_LWFB90()` via its `output_fun`-argument, that perform
+directly on the output of simulation, and can be used to do some custom
+aggregations or write the results to a file, while suppressing the return of the
+regular selected output (as specified by `output`-argument) using `rtrn_output =
+F`. In `run_multisite_LWFB90()`, such output-functions and further arguments can
+be easily passed via the `...` placeholder to `run_LWFB90()`. However,
+`run_LWFB90()` until recently did not know anything about the calling
+`run_multisite_LWFB90()` and the names of the parameter/soil/climate data sets
+(as specified by the names of the input list entries) it was currently
+processing. This was a problem, if the output function was defined to write its
+results to a file, because no identifier for the climate/soil/parameters sets
+was available inside `run_LWFB90()`. Since version 0.4.0, the names of the
+current soil, climate, parameter objects are passed automatically from
+`run_multisite_LWFB90()` to `run_LWFB90()` as objects `soil_nm`, `clim_nm`, and
+`param_nm`. In this way, they are accessible to `output_fun`-functions within
+`run_LWFB90()`.
 
-To demonstrate this mechanism, create a folder 'output', and define a simple function, that writes the results of the `daily_output` objects of the individual runs to files in that folder. The file names are concatenated from the names of the climate, soil, and parameter-sets:
+To demonstrate this mechanism, create a folder 'output', and define a simple
+function, that will writes the results of the `daily_output` objects of the
+individual runs to files in that folder. The file names are concatenated from
+the names of the climate, soil, and parameter-sets.
 
 ```{r}
 dir.create("output")
 outfun <- function(x, clim_nm, soil_nm, param_nm) {
-  fname = paste0("output/output_", clim_nm, soil_nm, param_nm, ".csv")
+  fname = paste0("output/output_", clim_nm,"_",soil_nm, "_", param_nm, ".csv")
   write.csv(x$daily_output, file = fname)
 }
 ```
 
-Now we can run the multi-site simulation as before, but suppress the regular output of `run_LWFB90()` using `rtrn_output=FALSE`, and pass above defined function: 
+Now we can run the multi-site simulation as before, but suppress the regular
+output of `run_LWFB90()` using `rtrn_output=FALSE`, and pass above defined
+function:
 
 ```{r}
 test3 <- run_multisite_LWFB90(options_b90 = opts,
                param_b90 = list(beech = param_beech,spruce = param_spruce),
                climate = climfun,
                climate_args = clim_args,
-               soil = split(soils, by = "id"),
+               soil = soils_list,
                rtrn_input = FALSE,
                rtrn_output = FALSE,
                output_fun = outfun,
                cores = 5)
+```
+
+Let's take a look to one of the single run results in the returned list:
+
+```{r}
 test3[1]
 ```
-Because we passed `rtrn_output = FALSE` to `run_LWFB90()`, the entries of the returned list do not contain any simulation results. As well, the entry `output_fun` is `NULL`, because `write.csv` has no return value when a file is specified. Additional arguments can be also passed to `output_fun`, when specified in the call of `run_multisite_LWFB90()`. These could be database connection objects or other arguments accepted by a custom `output_fun`.
+We see that the entries do not contain any simulation results, because we passed
+`rtrn_output = FALSE` to `run_LWFB90()`. As well, the entry `output_fun` is
+`NULL`, because `write.csv` has no return value when a file is specified.
+However, we can see that the simulation results were written to our
+'output'-directory:
+```{r}
+list.files("output")
+```
+Our output function did not use any external arguments, all information (data
+and names of the input to create a file name) was internally generated within
+`run_multisite_LWFB90()`. Similarily, we could have written the simulation
+results to a database. To do so, we just needed to pass a database connection
+object as argument to `output_fun`, that could simply be specified as argument
+(via the `...` place-holder) in the call of `run_multisite_LWFB90()`. We will
+learn how to do this in the next section.
 
 # Reproduction of NFIWADS database
-
-Now that we showed that our simple `output_fun` function worked, we can create a more complex function that calculates the aggregates of soil moisture status variables and water fluxes from the NFIWADS database. The output created consists of two tables containing monthly aggregates and aggregates for the vegetation period. To reduce code of the function, we outsource some of the code in functions that can be found in the directory 'R-Functions'. We source the functions:
+ 
+Now that we showed that our simple `output_fun` function worked, we can create a
+more complex function that calculates the aggregates of soil moisture status
+variables and water fluxes for the NFIWADS database. The output created consists
+of two tables containing monthly aggregates and aggregates for the vegetation
+period. To reduce code of the function, we outsource some of the code in
+functions that can be found in the directory 'R-Functions'. We source the
+functions:
 
 ```{r}
 source("R-Functions/aggr_swati.R")
@@ -206,11 +308,21 @@ source("R-Functions/aggr_states_soil_daymon.R")
 source("R-Functions/aggr_fluxes_vegper.R")
 source("R-Functions/aggr_states_soil_vegper.R")
 ```
-The first function (`aggr_swati`) aggregates the daily layer-wise soil moisture and fluxes variables (`layer_output`-data.frame) to daily values, while the other functions aggregate daily values to monthly or vegetation period representations, for which the beginning and end day-of-year of the vegetation period have to be specified as vectors covering the years of the simulation. The aggregation of the water fluxes simply take the output object `daily_output`, while soil moisture state aggregation functions are designed to use the returned daily values from `aggr_swati`. Using these functions, we can define our `output_fun` to combine the results in two tables, and write them to two different files:
+The first function (`aggr_swati`) aggregates the daily layer-wise soil moisture
+and fluxes variables (`layer_output`-data.frame) to daily values, while the
+other functions aggregate daily values to monthly or vegetation period
+representations, for which the beginning and end day-of-year of the vegetation
+period have to be specified as vectors covering the years of the simulation. The
+aggregation of the water fluxes simply take the output object `daily_output`,
+while soil moisture state aggregation functions are designed to use the returned
+daily values from the first function `aggr_swati`. Referring to these functions,
+we can define our `output_fun` to combine the results in two tables, and write
+them to two different tables (>70 columns!) in a database:
 
 ```{r}
-output_fct <- function(x, clim_nm, soil_nm, param_nm) {
-  # gather variables from input for later use
+outfun_nfiwads <- function(x, clim_nm, soil_nm, param_nm, db_out) {
+  
+  # gather variables from model-input for later use
   vpstart <- x$model_input$param_b90$budburstdoy
   vpend <- x$model_input$param_b90$leaffalldoy
 
@@ -223,40 +335,78 @@ output_fct <- function(x, clim_nm, soil_nm, param_nm) {
                             states_soil_daymon(swat.profile)[,-c(1,2), with = F])
   setnames(out_monthly, names(out_monthly), tolower(names(out_monthly)))
 
-  out_vp <- data.table(site_id = clim_nm, parset = param_nm,
+  out_vegper <- data.table(site_id = clim_nm, parset = param_nm,
                        fluxes_dailytovegper(x$daily_output,vp.start = vpstart, vp.end = vpend),
                        states_soil_dayvp(swat.profile, vp.start = vpstart, vp.end = vpend)[,-c(1,2), with = F])
-  setnames(out_vp, names(out_vp), tolower(names(out_vp)))
+  setnames(out_vegper, names(out_vegper), tolower(names(out_vegper)))
 
-  #chk_m <- dbAppendTable(db_out, "whh_sim_monthly", out_monthly) # has to be created first!
-  #chk_vp <- dbAppendTable(db_out, "whh_sim_vegper", out_vegper)
-  # if(all(chk_vp, chk_m)) {
-  #   return(paste0("data for", clim_nm, ", ", param_nm "saved succesfully"))
-  # } else {stop("error writing to connection")}
-
-  data.table::fwrite(out_monthly,file = paste0("output/",clim_nm,"_",soil_nm,"_",param_nm,"_monthly.csv"),append = TRUE)
-  data.table::fwrite(out_vp,file = paste0("output/",clim_nm,"_",soil_nm,"_",param_nm,"_vegper.csv"),append = TRUE)
-  return("Success!1!!")
+  # write to db
+  if (dbExistsTable(db_out, "nfiwads_monthly")) {
+    chk_m <-dbAppendTable(db_out, "nfiwads_monthly", out_monthly)
+  } else {
+    dbCreateTable(db_out, "nfiwads_monthly", out_monthly)
+    chk_m <-dbAppendTable(db_out, "nfiwads_monthly", out_monthly)
+  }
+  
+  if (dbExistsTable(db_out, "nfiwads_vegper")) {
+    chk_vp <- dbAppendTable(db_out, "nfiwads_vegper", out_vegper)
+  } else {
+    dbCreateTable(db_out, "nfiwads_vegper", out_vegper)
+    chk_vp <- dbAppendTable(db_out, "nfiwads_vegper", out_vegper)
+  }
+  
+  # data.table::fwrite(out_monthly,file = paste0("output/",clim_nm,"_",soil_nm,"_",param_nm,"_monthly.csv"),append = TRUE)
+  # data.table::fwrite(out_vp,file = paste0("output/",clim_nm,"_",soil_nm,"_",param_nm,"_vegper.csv"),append = TRUE)
+  if (chk_vp & chk_m) {
+    return("Success!1!!")
+  }
 }
 ```
 
-We can test our function using one of the single runs from our `test2` multirun simulation, to see that it works:
+The `db_out` database connection needs to be created first. Like the input
+database, we use an SQLite file, which is created when setting up the
+connection:
+
 ```{r}
-output_fct(test2[[1]],clim_nm = "clim", soil_nm = "soil", param_nm = "test")
+db_out <- dbConnect(SQLite(), "output/nfiwads_results.sqlite")
 ```
 
-Now it is time to run the NFIWADS sample, and reproduce the data. We set `rtrn_output = F`, and also `rtrn_input = F`. In this way only some small information about the runs are returned. Note that even though the input is not appended to the simulation results, it is available to our `output_fun`-function, where we extract information on the beginning and end of the vegetation period and information on soil data.
+We can test our function with one of the single runs from our `test2` multirun
+simulation to see that it works:
 ```{r}
-test4 <- run_multisite_LWFB90(options_b90 = opts,
-               param_b90 = list(beech = param_beech,spruce = param_spruce),
-               climate = climfun,
-               climate_args = clim_args,
-               soil = split(soils, by = "id"),
-               rtrn_input = F,
-               rtrn_output = F,
-               output_fun = outfun,
-               cores = 5)
-test4[[1]]$output_fun
+outfun_nfiwads(test2[[1]],
+           clim_nm = "clim", soil_nm = "soil", param_nm = "test", 
+           db_out = db_out)
+```
+
+And see that out database now contains two tables, populated with the test-data:
+
+```{r}
+dbListTables(db_out)
+dbGetQuery(db_out, "select * from nfiwads_monthly limit 6")
+#remove test-tables
+dbRemoveTable(db_out, "nfiwads_vegper")
+dbRemoveTable(db_out, "nfiwads_monthly")
+```
+
+Now it is time to run the NFIWADS sample, after having cleared the previously
+created test-tables. Again, we set `rtrn_output = F`, and also `rtrn_input = F`,
+so that only some small piece of information about the runs are returned. Note
+that even though the model input is not appended to the simulation results, it
+is available to our `output_fun`-function (`x`-argument), where we extract
+information on the beginning and end of the vegetation period and information on
+soil data.
+```{r}
+test4 <- run_multisite_LWFB90(
+  options_b90 = opts,
+  param_b90 = list(beech = param_beech,spruce = param_spruce),
+  climate = climfun,
+  climate_args = clim_args,
+  soil = soils_list,
+  rtrn_input = F,
+  rtrn_output = F,
+  output_fun = outfun_nfiwads,
+  cores = 5)
 ```
 
 
