@@ -14,8 +14,8 @@ aggr_swati <- function(layer_output, soil){
   #create layer-column if not existing
   soil$nl <- 1:nrow(soil)
 
-  setDT(soil)
-  setDT(layer_output)
+  data.table::setDT(soil)
+  data.table::setDT(layer_output)
 
   soil[,c("thick","FK","PWP") := list(upper  - lower,
                                       MvG.swc(63, alpha / 100, npar, ths, thr) * (1 - gravel),
@@ -29,8 +29,8 @@ aggr_swati <- function(layer_output, soil){
                                                      (FK-PWP) * 100 * thick * 10
   )]
   root_lower_nl <- max(which(soil$rootden>0))
-  setkey(soil, nl)
-  setkey(layer_output, nl)
+  data.table::setkey(soil, nl)
+  data.table::setkey(layer_output, nl)
 
   layer_output <- layer_output[soil,] # fast join soil hydraulic properties
   # key: nl, which are the SANDBELOW Layers ?

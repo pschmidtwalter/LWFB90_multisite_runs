@@ -40,7 +40,7 @@ remotes::install_github(repo="pschmidtwalter/LWFBrook90R",
 ```
 
 Now load the required packages:
-```{r, results = 'hide'}
+```{r, message=FALSE}
 library(LWFBrook90R)
 library(data.table)
 library(RSQLite)
@@ -50,7 +50,7 @@ The NFIWADS sample data is available as supplementary materials of
 NFIWADS-publication at ZENODO. We download the .zip file to a temporary location
 and extract the sqlite database file 'NFIWADS_input.sqlite', that contains the
 input along with a sample of climatic data, to save it in the working directory:
-```{r, results = 'hide'}
+```{r}
 tdir <- tempdir()
 tfile <- tempfile(tmpdir = tdir, fileext = ".zip")
 download.file("https://zenodo.org/record/1491520/files/NFIWADS_supplementary_material.zip", tfile)
@@ -225,7 +225,7 @@ data. However, the output of `run_multisite_LWFB90()` can also become very large
 if many sites are simulated, and the returned data is selected to contain daily
 values. To reduce the output of the single run simulations, it is possible to
 provide functions for `run_LWFB90()` via its `output_fun`-argument, that perform
-directly on the output of simulation, and can be used to do some custom
+directly on the output of simulation. These can be used to do some custom
 aggregations or write the results to a file, while suppressing the return of the
 regular selected output (as specified by `output`-argument) using `rtrn_output =
 F`. In `run_multisite_LWFB90()`, such output-functions and further arguments can
@@ -277,19 +277,20 @@ test3[1]
 ```
 We see that the entries do not contain any simulation results, because we passed
 `rtrn_output = FALSE` to `run_LWFB90()`. As well, the entry `output_fun` is
-`NULL`, because `write.csv` has no return value when a file is specified.
-However, we can see that the simulation results were written to our
-'output'-directory:
+`NULL`, because `write.csv` has no return value when a file is specified. We can
+see however that out attempt was successful, the simulation results were written
+to our 'output'-directory:
 ```{r}
 list.files("output")
 ```
 Our output function did not use any external arguments, all information (data
-and names of the input to create a file name) was internally generated within
-`run_multisite_LWFB90()`. Similarily, we could have written the simulation
-results to a database. To do so, we just needed to pass a database connection
-object as argument to `output_fun`, that could simply be specified as argument
-(via the `...` place-holder) in the call of `run_multisite_LWFB90()`. We will
-learn how to do this in the next section.
+and names of the current input objects to create a file name) was internally
+generated within `run_multisite_LWFB90()`. Similarily, we could have written the
+simulation results to a database. To do so, we just needed to set up a database
+connection inside the function, and close it afterwards. Arguments for setting
+up the connection can simply be passed to `output_fun` via the `...`
+place-holder in the call of `run_multisite_LWFB90()`. We will learn how to do
+this in the next section.
 
 # Reproduction of NFIWADS database
  
@@ -297,73 +298,76 @@ Now that we showed that our simple `output_fun` function worked, we can create a
 more complex function that calculates the aggregates of soil moisture status
 variables and water fluxes for the NFIWADS database. The output created consists
 of two tables containing monthly aggregates and aggregates for the vegetation
-period. To reduce code of the function, we outsource some of the code in
-functions that can be found in the directory 'R-Functions'. We source the
-functions:
+period. To reduce code of the function, we outsourced some of the code in
+functions that can be found in the directory 'R-Functions'. 
+
+We source the functions inside our function call (see below). The first function
+(`aggr_swati`) aggregates the daily layer-wise soil moisture and fluxes
+variables (`layer_output`-data.frame) to daily values, while the other functions
+aggregate daily values to monthly or vegetation period representations, for
+which the beginning and end day-of-year of the vegetation period have to be
+specified as vectors covering the years of the simulation. The aggregation of
+the water fluxes simply take the output object `daily_output`, while soil
+moisture state aggregation functions are designed to use the returned daily
+values from the first function `aggr_swati`. Referring to these functions, we
+can define our `output_fun` to combine the results in two tables, and write them
+to two different tables (>70 columns!) in a database:
 
 ```{r}
-source("R-Functions/aggr_swati.R")
-source("R-Functions/aggr_fluxes_daymon.R")
-source("R-Functions/aggr_states_soil_daymon.R")
-source("R-Functions/aggr_fluxes_vegper.R")
-source("R-Functions/aggr_states_soil_vegper.R")
-```
-The first function (`aggr_swati`) aggregates the daily layer-wise soil moisture
-and fluxes variables (`layer_output`-data.frame) to daily values, while the
-other functions aggregate daily values to monthly or vegetation period
-representations, for which the beginning and end day-of-year of the vegetation
-period have to be specified as vectors covering the years of the simulation. The
-aggregation of the water fluxes simply take the output object `daily_output`,
-while soil moisture state aggregation functions are designed to use the returned
-daily values from the first function `aggr_swati`. Referring to these functions,
-we can define our `output_fun` to combine the results in two tables, and write
-them to two different tables (>70 columns!) in a database:
+outfun_nfiwads <- function(x, clim_nm, soil_nm, param_nm, db_path) {
 
-```{r}
-outfun_nfiwads <- function(x, clim_nm, soil_nm, param_nm, db_out) {
-  
+  # source helper functions
+  source("R-Functions/aggr_swati.R", local = T)
+  source("R-Functions/aggr_fluxes_daymon.R", local = T)
+  source("R-Functions/aggr_states_soil_daymon.R", local = T)
+  source("R-Functions/aggr_fluxes_vegper.R", local = T)
+  source("R-Functions/aggr_states_soil_vegper.R", local = T)
+    
   # gather variables from model-input for later use
   vpstart <- x$model_input$param_b90$budburstdoy
   vpend <- x$model_input$param_b90$leaffalldoy
-
+  
   soil <- with(x$model_input$param, merge(soil_nodes, soil_materials, by = "mat"))
-
+  
   swat.profile <- aggr_swati(x$layer_output, soil) # aggregate layer output
-
-  out_monthly <- data.table(site_id = clim_nm, parset = param_nm,
+  
+  out_monthly <- data.table::data.table(site_id = clim_nm, parset = param_nm,
                             fluxes_dailytomonthly(x$daily_output),
                             states_soil_daymon(swat.profile)[,-c(1,2), with = F])
-  setnames(out_monthly, names(out_monthly), tolower(names(out_monthly)))
-
-  out_vegper <- data.table(site_id = clim_nm, parset = param_nm,
-                       fluxes_dailytovegper(x$daily_output,vp.start = vpstart, vp.end = vpend),
-                       states_soil_dayvp(swat.profile, vp.start = vpstart, vp.end = vpend)[,-c(1,2), with = F])
-  setnames(out_vegper, names(out_vegper), tolower(names(out_vegper)))
-
+  data.table::setnames(out_monthly, names(out_monthly), tolower(names(out_monthly)))
+  
+  out_vegper <- data.table::data.table( 
+    site_id = clim_nm, parset = param_nm,
+    fluxes_dailytovegper(x$daily_output,vp.start = vpstart, vp.end = vpend),
+    states_soil_dayvp(swat.profile, vp.start = vpstart, vp.end = vpend)[,-c(1,2), with = F])
+  data.table::setnames(out_vegper, names(out_vegper), tolower(names(out_vegper)))
+  
   # write to db
-  if (dbExistsTable(db_out, "nfiwads_monthly")) {
-    chk_m <-dbAppendTable(db_out, "nfiwads_monthly", out_monthly)
+  # open connection
+  db_out <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+  if (DBI::dbExistsTable(db_out, "nfiwads_monthly")) {
+    chk_m <-DBI::dbAppendTable(db_out, "nfiwads_monthly", out_monthly)
   } else {
-    dbCreateTable(db_out, "nfiwads_monthly", out_monthly)
-    chk_m <-dbAppendTable(db_out, "nfiwads_monthly", out_monthly)
+    DBI::dbCreateTable(db_out, "nfiwads_monthly", out_monthly)
+    chk_m <-DBI::dbAppendTable(db_out, "nfiwads_monthly", out_monthly)
   }
-  
-  if (dbExistsTable(db_out, "nfiwads_vegper")) {
-    chk_vp <- dbAppendTable(db_out, "nfiwads_vegper", out_vegper)
+
+  if (DBI::dbExistsTable(db_out, "nfiwads_vegper")) {
+    chk_vp <- DBI::dbAppendTable(db_out, "nfiwads_vegper", out_vegper)
   } else {
-    dbCreateTable(db_out, "nfiwads_vegper", out_vegper)
-    chk_vp <- dbAppendTable(db_out, "nfiwads_vegper", out_vegper)
+    DBI::dbCreateTable(db_out, "nfiwads_vegper", out_vegper)
+    chk_vp <- DBI::dbAppendTable(db_out, "nfiwads_vegper", out_vegper)
   }
+  #close
+  DBI::dbDisconnect(db_out)
   
-  # data.table::fwrite(out_monthly,file = paste0("output/",clim_nm,"_",soil_nm,"_",param_nm,"_monthly.csv"),append = TRUE)
-  # data.table::fwrite(out_vp,file = paste0("output/",clim_nm,"_",soil_nm,"_",param_nm,"_vegper.csv"),append = TRUE)
   if (chk_vp & chk_m) {
     return("Success!1!!")
   }
 }
 ```
 
-The `db_out` database connection needs to be created first. Like the input
+The database should be created first. Like the input
 database, we use an SQLite file, which is created when setting up the
 connection:
 
@@ -376,14 +380,13 @@ simulation to see that it works:
 ```{r}
 outfun_nfiwads(test2[[1]],
            clim_nm = "clim", soil_nm = "soil", param_nm = "test", 
-           db_out = db_out)
+           db_path = "output/nfiwads_results.sqlite")
 ```
 
-And see that out database now contains two tables, populated with the test-data:
+The database now contains two tables, populated with data:
 
 ```{r}
 dbListTables(db_out)
-dbGetQuery(db_out, "select * from nfiwads_monthly limit 6")
 #remove test-tables
 dbRemoveTable(db_out, "nfiwads_vegper")
 dbRemoveTable(db_out, "nfiwads_monthly")
@@ -396,6 +399,11 @@ that even though the model input is not appended to the simulation results, it
 is available to our `output_fun`-function (`x`-argument), where we extract
 information on the beginning and end of the vegetation period and information on
 soil data.
+
+```{r, echo = F}
+options(future.rng.onMisuse = 'ignore')
+```
+
 ```{r}
 test4 <- run_multisite_LWFB90(
   options_b90 = opts,
@@ -406,7 +414,16 @@ test4 <- run_multisite_LWFB90(
   rtrn_input = F,
   rtrn_output = F,
   output_fun = outfun_nfiwads,
+  db_path = "output/nfiwads_results.sqlite",
   cores = 5)
+```
+Die Simulation läuft sauber durch, jedoch gibt es auf meinem REchner ein
+Warning, dass parallel erzeugte Zufallszahlen nicht unabhängig von einandern
+sind. Wahrscheinlich hat das etwas mit den Datenbankverbindungen zu tun,
+Zufalleszahlen werden in LWFBrook90R jedenfalls nicht erzeugt. Mit folgendem
+Befehl lässt sich die Warnung abschalten:
+```{r, eval = F}
+options(future.rng.onMisuse = 'ignore')
 ```
 
 

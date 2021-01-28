@@ -11,10 +11,10 @@
 #' @export
 fluxes_dailytovegper <- function(dat, vp.start, vp.end) {
 
-  setDT(dat)
-  vp <- data.table(yr = unique(dat$yr), start = vp.start, end = vp.end)
-  setkey(dat, yr)
-  setkey(vp, yr)
+  data.table::setDT(dat)
+  vp <- data.table::data.table(yr = unique(dat$yr), start = vp.start, end = vp.end)
+  data.table::setkey(dat, yr)
+  data.table::setkey(vp, yr)
 
   dat <- dat[vp]
 

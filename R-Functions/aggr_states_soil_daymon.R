@@ -7,7 +7,7 @@
 #' integrating over vegetation or other intervals
 #' @export
 states_soil_daymon <- function(dat) {
-  setDT(dat)
+  data.table::setDT(dat)
   dat_month <- dat[,list(
     #SWAT
     vrfl_we = sum(vrfl_we),

@@ -13,8 +13,8 @@
 #' @export
 states_soil_dayvp <- function(dat, vp.start, vp.end) {
 
-  setDT(dat)
-  setkey(dat, yr)
+  data.table::setDT(dat)
+  data.table::setkey(dat, yr)
   vp <- data.table::data.table(yr = unique(dat$yr), start = vp.start, end = vp.end)
   data.table::setkey(vp, yr)
 

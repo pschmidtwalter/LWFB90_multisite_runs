@@ -6,7 +6,7 @@
 #' integrating over monthly intervals
 #' @export
 fluxes_dailytomonthly <- function(dat) {
-  setDT(dat)
+  data.table::setDT(dat)
   dat_month <- dat[,list(evap= sum(evap),
                          tran = sum(tran),
                          irvp = sum(irvp),
